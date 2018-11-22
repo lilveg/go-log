@@ -25,13 +25,16 @@ type FdWriter interface {
 
 // Logger struct define the underlying storage for single logger
 type Logger struct {
-	mu        sync.RWMutex
-	color     bool
-	out       FdWriter
-	debug     bool
-	timestamp bool
-	quiet     bool
-	buf       colorful.ColorBuffer
+	mu            sync.RWMutex
+	name          []byte
+	color         bool
+	out           FdWriter
+	debug         bool
+	timestamp     bool
+	quiet         bool
+	buf           colorful.ColorBuffer
+	microseconds  bool
+	shortLocation bool
 }
 
 // Prefix struct define plain and color byte
@@ -116,6 +119,38 @@ func (l *Logger) WithoutColor() *Logger {
 	return l
 }
 
+// Print timestamp with microsecond precision
+func (l *Logger) WithMicroseconds() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.microseconds = true
+	return l
+}
+
+// Don't print timestamp with microsecond precision
+func (l *Logger) WithoutMicroseconds() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.microseconds = false
+	return l
+}
+
+// Use short location specifier
+func (l *Logger) WithShortLocation() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.shortLocation = true
+	return l
+}
+
+// Use long location specifier
+func (l *Logger) WithoutShortLocation() *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.shortLocation = false
+	return l
+}
+
 // WithDebug turn on debugging output on the log to reveal debug and trace level
 func (l *Logger) WithDebug() *Logger {
 	l.mu.Lock()
@@ -155,6 +190,14 @@ func (l *Logger) WithoutTimestamp() *Logger {
 	return l
 }
 
+// Give the logger a name which will be printed on every line
+func (l *Logger) WithName(name string) *Logger {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.name = []byte(name)
+	return l
+}
+
 // Quiet turn off all log output
 func (l *Logger) Quiet() *Logger {
 	l.mu.Lock()
@@ -190,7 +233,7 @@ func (l *Logger) Output(depth int, prefix Prefix, data string) error {
 	var file string
 	var line int
 	var fn string
-	// Check if the specified prefix needs to be included with file logging
+	// Check if the specified prefix needs to be included with file logging, or if any of the file flags are set
 	if prefix.File {
 		var ok bool
 		var pc uintptr
@@ -202,7 +245,21 @@ func (l *Logger) Output(depth int, prefix Prefix, data string) error {
 			line = 0
 		} else {
 			file = filepath.Base(file)
-			fn = runtime.FuncForPC(pc).Name()
+
+			// If short location specifiers are requested, trim the file path and don't print the function name
+			if l.shortLocation {
+				short := file
+				for i := len(file) - 1; i > 0; i-- {
+					if file[i] == '/' {
+						short = file[i+1:]
+						break
+					}
+				}
+				file = short
+
+			} else {
+				fn = runtime.FuncForPC(pc).Name()
+			}
 		}
 	}
 	// Acquire exclusive access to the shared buffer
@@ -236,21 +293,44 @@ func (l *Logger) Output(depth int, prefix Prefix, data string) error {
 		l.buf.AppendInt(min, 2)
 		l.buf.AppendByte(':')
 		l.buf.AppendInt(sec, 2)
+
+		if l.microseconds {
+			l.buf.AppendByte('.')
+			l.buf.AppendInt(now.Nanosecond()/1000, 6)
+		}
+
 		l.buf.AppendByte(' ')
+
 		// Print reset color if color enabled
 		if l.color {
 			l.buf.Off()
 		}
 	}
+	// Write logger name
+	if l.name != nil {
+		if l.color {
+			l.buf.Gray()
+		}
+		l.buf.AppendByte('[')
+		l.buf.Append(l.name)
+		l.buf.AppendByte(']')
+		l.buf.AppendByte(' ')
+		if l.color {
+			l.buf.Off()
+		}
+	}
 	// Add caller filename and line if enabled
-	if prefix.File {
+	if file != "" {
 		// Print color start if enabled
 		if l.color {
 			l.buf.Orange()
 		}
 		// Print filename and line
-		l.buf.Append([]byte(fn))
-		l.buf.AppendByte(':')
+		if fn != "" {
+			l.buf.Append([]byte(fn))
+			l.buf.AppendByte(':')
+		}
+
 		l.buf.Append([]byte(file))
 		l.buf.AppendByte(':')
 		l.buf.AppendInt(line, 0)
