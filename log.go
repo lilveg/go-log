@@ -13,14 +13,22 @@ import (
 	"time"
 
 	"github.com/withmandala/go-log/colorful"
+	"golang.org/x/crypto/ssh/terminal"
 )
+
+// FdWriter interface extends existing io.Writer with file descriptor function
+// support
+type FdWriter interface {
+	io.Writer
+	Fd() uintptr
+}
 
 // Logger struct define the underlying storage for single logger
 type Logger struct {
 	mu            sync.RWMutex
 	name          []byte
 	color         bool
-	out           io.Writer
+	out           FdWriter
 	debug         bool
 	timestamp     bool
 	quiet         bool
@@ -87,9 +95,9 @@ var (
 
 // New returns new Logger instance with predefined writer output and
 // automatically detect terminal coloring support
-func New(out io.Writer, isTerminal bool) *Logger {
+func New(out FdWriter) *Logger {
 	return &Logger{
-		color:     isTerminal,
+		color:     terminal.IsTerminal(int(out.Fd())),
 		out:       out,
 		timestamp: true,
 	}
