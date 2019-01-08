@@ -221,6 +221,12 @@ func (l *Logger) IsQuiet() bool {
 	return l.quiet
 }
 
+// Comply with io.Writer interface
+func (l *Logger) Write(p []byte) (int, error) {
+	l.Infof("%v", p)
+	return len(p), nil
+}
+
 // Output print the actual value
 func (l *Logger) Output(depth int, prefix Prefix, data string) error {
 	// Check if quiet is requested, and try to return no error and be quiet
