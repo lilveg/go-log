@@ -223,7 +223,7 @@ func (l *Logger) IsQuiet() bool {
 
 // Comply with io.Writer interface
 func (l *Logger) Write(p []byte) (int, error) {
-	l.Infof("%v", p)
+	l.Infof("%s", string(p))
 	return len(p), nil
 }
 
